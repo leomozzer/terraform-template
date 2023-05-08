@@ -1,0 +1,47 @@
+name: "Create storage account and container"
+description: "Create a storage account to save the tfstate files"
+
+inputs:
+  AZURE_SP:
+    description: "Credentials of the Azure SP"
+    required: true
+  RESOURCE_GROUP_NAME:
+    description: "Name of the resource group"
+    required: true
+  RESOURCE_GROUP_LOCATION:
+    description: "Location of the resource group"
+    required: true
+  TAGS:
+    description: "Tags of the resource group"
+    required: true
+  STORAGE_ACCOUNT_NAME:
+    description: "Name of the storage account"
+    required: true
+  AZURE_CLI_VERSION:
+    description: "Azure cli version"
+    required: false
+    default: 'latest'
+
+runs:
+  using: "composite"
+  steps:
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ inputs.AZURE_SP }}
+
+    - name: Create RG
+      uses: azure/CLI@v1
+      with:
+        azcliversion: ${{ inputs.AZURE_CLI_VERSION }}
+        inlineScript: |
+          az group create --location ${{ inputs.RESOURCE_GROUP_LOCATION }} --resource-group ${{ inputs.RESOURCE_GROUP_NAME }} --tags ${{ inputs.TAGS }}
+
+    - name: Create storage account for Terraform
+      uses: azure/CLI@v1
+      with:
+        azcliversion: ${{ inputs.AZURE_CLI_VERSION }}
+        inlineScript: |
+          az storage account create --resource-group ${{ inputs.RESOURCE_GROUP_NAME }} --name ${{ inputs.STORAGE_ACCOUNT_NAME }} --sku Standard_LRS --kind StorageV2 --encryption-services blob --access-tier Cool --allow-blob-public-access false
+          az storage container create --name states --account-name ${{ inputs.STORAGE_ACCOUNT_NAME }}
+          az storage container create --name plans --account-name ${{ inputs.STORAGE_ACCOUNT_NAME }}

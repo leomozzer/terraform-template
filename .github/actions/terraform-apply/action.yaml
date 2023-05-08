@@ -1,0 +1,60 @@
+name: 'Terraform Apply'
+description: "Performs the terraform apply"
+
+inputs:
+  AZURE_CLI_VERSION:
+    description: "Azure cli version"
+    required: false
+    default: 'latest'
+  WORKING_DIR:
+    description: "working directory"
+    required: true
+  AZURE_SP:
+    description: "Credentials of the Azure SP"
+    required: true
+  STORAGE_ACCOUNT_NAME:
+    description: "Name of the storage account"
+    required: true
+  STAGE:
+    description: "Deployment stage"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ inputs.AZURE_SP }}
+
+    - uses: hashicorp/setup-terraform@v2
+
+    - name: Copy ${{ inputs.STAGE }} live plan from Storage
+      uses: azure/CLI@v1
+      with:
+        azcliversion: ${{ inputs.AZURE_CLI_VERSION }}
+        inlineScript: |
+          az storage blob download \
+          --file terraform-live.tar \
+          --name terraform-live-${{ inputs.STAGE }}-${{ github.run_number }}.tar \
+          --account-name ${{ inputs.STORAGE_ACCOUNT_NAME }} \
+          --container-name plans
+          tar -xvf terraform-live.tar -C ./
+
+    - name: Copy ${{ inputs.STAGE }} modules from Storage
+      uses: azure/CLI@v1
+      with:
+        azcliversion: ${{ inputs.AZURE_CLI_VERSION }}
+        inlineScript: |
+          az storage blob download \
+          --file terraform-modules.tar \
+          --name terraform-modules-${{ inputs.STAGE }}-${{ github.run_number }}.tar \
+          --account-name ${{ inputs.STORAGE_ACCOUNT_NAME }} \
+          --container-name plans
+          tar -xvf terraform-modules.tar -C ./
+
+    - name: Terraform Apply
+      shell: bash
+      run:
+        terraform apply -lock-timeout=10m "${{ inputs.STAGE }}.plan"
+      working-directory: ${{ inputs.WORKING_DIR }}/terraform-live
