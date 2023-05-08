@@ -10,6 +10,9 @@ on:
       INFRACOST_API_KEY:
         required: false
 
+env:
+  INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
+
 jobs:
   tfsec:
     name: "Aquasec TfSec"
@@ -30,7 +33,7 @@ jobs:
 
   infracost:
     name: Infracost
-    if: ${{ secrets.INFRACOST_API_KEY }} != null
+    if: ${INFRACOST_API_KEY} != null
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -39,6 +42,7 @@ jobs:
 
     env:
       TF_ROOT: ${{ inputs.TERRAFORM_WORKING_DIR }}
+      INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
       # If you're using Terraform Cloud/Enterprise and have variables or private modules stored
       # on there, specify the following to automatically retrieve the variables:
       #   INFRACOST_TERRAFORM_CLOUD_TOKEN: ${{ secrets.TFC_TOKEN }}
