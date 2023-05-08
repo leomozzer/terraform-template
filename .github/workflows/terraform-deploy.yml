@@ -3,7 +3,7 @@ name: 'Terraform Deploy'
 on:
   workflow_call:
     inputs:
-      WORKING_DIR:
+      TERRAFORM_WORKING_DIR:
         required: true
         type: string
     secrets:
@@ -14,6 +14,8 @@ on:
       ARM_SUBSCRIPTION_ID:
         required: true
       ARM_TENANT_ID:
+        required: true
+      INFRACOST_API_KEY:
         required: true
 
 jobs:
@@ -30,7 +32,7 @@ jobs:
       - name: TfSec on terraform files
         run: |
           docker pull aquasec/tfsec:latest
-          docker run --rm -v "${{ inputs.WORKING_DIR }}:/src" aquasec/tfsec ./src
+          docker run --rm -v "$(pwd)/${{ inputs.TERRAFORM_WORKING_DIR }}:/src" aquasec/tfsec ./src
           docker rmi "aquasec/tfsec:latest" -f | true
 
   infracost:
@@ -64,7 +66,7 @@ jobs:
         # See https://github.com/infracost/actions/tree/master/setup for other inputs
         # If you can't use this action, see Docker images in https://infracost.io/cicd
         with:
-          api-key: ${{ secrets.INFRACOST_API_KEY }}
+          api-key: ${{ inputs.INFRACOST_API_KEY }}
 
       # Checkout the base branch of the pull request (e.g. main/master).
       - name: Checkout base branch
