@@ -66,7 +66,7 @@ jobs:
         # See https://github.com/infracost/actions/tree/master/setup for other inputs
         # If you can't use this action, see Docker images in https://infracost.io/cicd
         with:
-          api-key: ${{ inputs.INFRACOST_API_KEY }}
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
 
       # Checkout the base branch of the pull request (e.g. main/master).
       - name: Checkout base branch
