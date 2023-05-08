@@ -1,5 +1,5 @@
 
-name: 'Terraform Deploy'
+name: 'TfSec and InfraCost'
 on:
   workflow_call:
     inputs:
@@ -7,19 +7,12 @@ on:
         required: true
         type: string
     secrets:
-      ARM_CLIENT_ID:
-        required: true
-      ARM_CLIENT_SECRET: 
-        required: true
-      ARM_SUBSCRIPTION_ID:
-        required: true
-      ARM_TENANT_ID:
-        required: true
       INFRACOST_API_KEY:
-        required: true
+        required: false
 
 jobs:
-  audit:
+  tfsec:
+    name: "Aquasec TfSec"
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -37,6 +30,7 @@ jobs:
 
   infracost:
     name: Infracost
+    if: ${{ secrets.INFRACOST_API_KEY }} != null
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -44,7 +38,7 @@ jobs:
       pull-requests: write
 
     env:
-      TF_ROOT: ./terraform-live
+      TF_ROOT: ${{ inputs.TERRAFORM_WORKING_DIR }
       # If you're using Terraform Cloud/Enterprise and have variables or private modules stored
       # on there, specify the following to automatically retrieve the variables:
       #   INFRACOST_TERRAFORM_CLOUD_TOKEN: ${{ secrets.TFC_TOKEN }}
