@@ -33,7 +33,6 @@ jobs:
 
   infracost:
     name: Infracost
-    if: ${{ $INFRACOST_API_KEY != 'null' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
