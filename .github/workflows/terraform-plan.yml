@@ -95,16 +95,17 @@ jobs:
 
       - name: Terraform fmt
         id: fmt
-        run: terraform fmt -check -recursive -diff ${{ inputs.WORKING_DIR}}
+        run: terraform fmt -check -recursive -diff ${{ inputs.TERRAFORM_WORKING_DIR}}
         continue-on-error: true
         shell: bash
-        working-directory: ${{ inputs.WORKING_DIR }}${{ inputs.TERRAFORM_WORKING_DIR }}
+        working-directory: ${{ inputs.WORKING_DIR }}
 
       - name: Ensure ${{ inputs.STAGE }}.tfvars exists
         shell: bash
         run: |
           ls -ltr
-          touch ${{ inputs.WORKING_DIR }}${{ inputs.TERRAFORM_WORKING_DIR }}/${{ inputs.STAGE }}.tfvars
+          touch ${{ inputs.TERRAFORM_WORKING_DIR }}/${{ inputs.STAGE }}.tfvars
+        working-directory: ${{ inputs.WORKING_DIR }}
 
       - name: Create backend file
         shell: pwsh
