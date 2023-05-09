@@ -68,7 +68,7 @@ jobs:
       - name: Azure Login
         uses: azure/login@v1
         with:
-          creds: ${{ inputs.AZURE_SP }}
+          creds: ${{ secrets.AZURE_SP }}
 
       - name: Create RG
         uses: azure/CLI@v1
