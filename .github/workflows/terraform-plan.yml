@@ -1,0 +1,174 @@
+name: 'Terraform Plan'
+on:
+  workflow_call:
+    inputs:
+      TERRAFORM_WORKING_DIR:
+        required: false
+        type: string
+        default: terraform-live
+      TERRAFORM_MODULES_DIR:
+        required: true
+        type: string
+        default: terraform-modules
+      AZURE_CLI_VERSION:
+        type: string
+        description: "Azure cli version"
+        required: false
+        default: 'latest'
+      WORKING_DIR:
+        type: string
+        description: "working directory"
+        required: true
+      RESOURCE_GROUP_NAME:
+        type: string
+        description: "Resource Group of storage account"
+        required: true
+      STORAGE_ACCOUNT_NAME:
+        type: string
+        description: "Name of the storage account"
+        required: true
+      CONTAINER_NAME:
+        type: string
+        description: "Container name"
+        required: true
+      STATE_FILE:
+        type: string
+        description: "Name of the state files"
+        required: true
+      STAGE:
+        type: string
+        description: "Deployment stage"
+        required: true
+      TAGS:
+        type: string
+        description: "Tags to be added into the rg state files"
+        required: false
+    secrets:
+      AZURE_SP:
+        description: "Credentials of the Azure SP"
+        required: true
+      ARM_CLIENT_ID: 
+        description: "SP client ID"
+        required: true
+      ARM_CLIENT_SECRET:
+        description: "SP cliente secret"
+        required: true
+      ARM_SUBSCRIPTION_ID: 
+        description: "Subscription ID"
+        required: true
+      ARM_TENANT_ID:
+        description: "Tenant id"
+        required: true
+
+jobs:
+  plan:
+    name: "Plan Job"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ inputs.AZURE_SP }}
+
+      - name: Create RG
+        uses: azure/CLI@v1
+        with:
+          azcliversion: ${{ inputs.AZURE_CLI_VERSION }}
+          inlineScript: |
+            az group create --location ${{ inputs.RESOURCE_GROUP_LOCATION }} --resource-group ${{ inputs.RESOURCE_GROUP_NAME }} --tags ${{ inputs.TAGS }}
+
+      - name: Create storage account for Terraform
+        uses: azure/CLI@v1
+        with:
+          azcliversion: ${{ inputs.AZURE_CLI_VERSION }}
+          inlineScript: |
+            az storage account create --resource-group ${{ inputs.RESOURCE_GROUP_NAME }} --name ${{ inputs.STORAGE_ACCOUNT_NAME }} --sku Standard_LRS --kind StorageV2 --encryption-services blob --access-tier Cool --allow-blob-public-access false
+            az storage container create --name states --account-name ${{ inputs.STORAGE_ACCOUNT_NAME }}
+            az storage container create --name plans --account-name ${{ inputs.STORAGE_ACCOUNT_NAME }}
+
+      - uses: hashicorp/setup-terraform@v2
+
+      - name: Terraform fmt
+        id: fmt
+        run: terraform fmt -check -recursive -diff ${{ inputs.WORKING_DIR}}
+        continue-on-error: true
+        shell: bash
+        working-directory: ${{ inputs.WORKING_DIR }}/${{ inputs.TERRAFORM_WORKING_DIR }}
+
+      - name: Ensure ${{ inputs.STAGE }}.tfvars exists
+        shell: bash
+        run: |
+          touch ${{ inputs.WORKING_DIR }}/${{ inputs.TERRAFORM_WORKING_DIR }}/${{ inputs.STAGE }}.tfvars
+
+      - name: Create backend file
+        shell: pwsh
+        run: |
+          New-Item -Path "${{ inputs.WORKING_DIR }}/${{ inputs.TERRAFORM_WORKING_DIR }}" -Name "backend.tf" -Value "terraform {`r`nbackend `"azurerm`" {`r`nresource_group_name = `"${{ inputs.RESOURCE_GROUP_NAME }}`"`r`nstorage_account_name = `"${{ inputs.STORAGE_ACCOUNT_NAME }}`"`r`ncontainer_name = `"${{ inputs.CONTAINER_NAME }}`"`r`nkey = `"${{ inputs.STATE_FILE }}`"`r`n}`r`n}`r`n"
+
+      - name: Create Provider file
+        shell: pwsh
+        run: |
+          New-Item -Path "${{ inputs.WORKING_DIR }}/${{ inputs.TERRAFORM_WORKING_DIR }}" -Name "azurerm_provider.tf" -Value "provider `"azurerm`"{`r`nskip_provider_registration = true`r`nfeatures {}`r`n}"
+
+      - name: Terraform Init
+        id: init
+        run: terraform init -reconfigure
+        shell: bash
+        working-directory: ${{ inputs.WORKING_DIR }}/${{ inputs.TERRAFORM_WORKING_DIR }}
+
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -var-file="${{ inputs.STAGE }}.tfvars" -lock-timeout=10m -out=${{ inputs.STAGE }}.plan
+        continue-on-error: false
+        shell: bash
+        working-directory: ${{ inputs.WORKING_DIR }}/${{ inputs.TERRAFORM_WORKING_DIR }}
+
+      - name: TfSec on modules
+        shell: bash
+        run: |
+          docker pull aquasec/tfsec:latest
+          docker run --rm -v "$(pwd)/${{ inputs.TERRAFORM_WORKING_DIR }}/.terraform/modules:/src" aquasec/tfsec ./src
+
+      - name: Archive terraform-live and plan
+        uses: a7ul/tar-action@v1.1.0
+        id: compress-terraform-live
+        with:
+          command: c
+          cwd: ${{ inputs.WORKING_DIR }}
+          files: |
+            ./${{ inputs.TERRAFORM_WORKING_DIR }}
+          outPath: terraform-live-${{ inputs.STAGE }}-${{ github.run_number }}.tar
+
+      - name: Copy ${{ inputs.STAGE }} live plan to Storage
+        uses: azure/CLI@v1
+        with:
+          azcliversion: ${{ inputs.AZURE_CLI_VERSION }}
+          inlineScript: |
+            az storage blob upload \
+              --container-name plans \
+              --file terraform-live-${{ inputs.STAGE }}-${{ github.run_number }}.tar \
+              --name terraform-live-${{ inputs.STAGE }}-${{ github.run_number }}.tar \
+              --account-name ${{ inputs.STORAGE_ACCOUNT_NAME }} \
+              --overwrite
+
+      - name: Archive terraform-modules
+        uses: a7ul/tar-action@v1.1.0
+        id: compress-terraform-modules
+        with:
+          command: c
+          cwd: ${{ inputs.WORKING_DIR }}
+          files: |
+            ./${{ inputs.TERRAFORM_MODULES_DIR }}
+          outPath: terraform-modules-${{ inputs.STAGE }}-${{ github.run_number }}.tar
+
+      - name: Copy ${{ inputs.STAGE }} modules to Storage
+        uses: azure/CLI@v1
+        with:
+          azcliversion: ${{ inputs.AZURE_CLI_VERSION }}
+          inlineScript: |
+            az storage blob upload \
+              --container-name plans \
+              --file terraform-modules-${{ inputs.STAGE }}-${{ github.run_number }}.tar \
+              --name terraform-modules-${{ inputs.STAGE }}-${{ github.run_number }}.tar \
+              --account-name ${{ inputs.STORAGE_ACCOUNT_NAME }} \
+              --overwrite
