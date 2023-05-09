@@ -103,6 +103,7 @@ jobs:
       - name: Ensure ${{ inputs.STAGE }}.tfvars exists
         shell: bash
         run: |
+          ls -ltr
           touch ${{ inputs.WORKING_DIR }}${{ inputs.TERRAFORM_WORKING_DIR }}/${{ inputs.STAGE }}.tfvars
 
       - name: Create backend file
