@@ -72,134 +72,111 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: List dir
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_SP }}
+
+      - name: Create RG
+        uses: azure/CLI@v1
+        with:
+          azcliversion: ${{ inputs.AZURE_CLI_VERSION }}
+          inlineScript: |
+            az group create --location ${{ inputs.RESOURCE_GROUP_LOCATION }} --resource-group ${{ inputs.RESOURCE_GROUP_NAME }} --tags ${{ inputs.TAGS }}
+
+      - name: Create storage account for Terraform
+        uses: azure/CLI@v1
+        with:
+          azcliversion: ${{ inputs.AZURE_CLI_VERSION }}
+          inlineScript: |
+            az storage account create --resource-group ${{ inputs.RESOURCE_GROUP_NAME }} --name ${{ inputs.STORAGE_ACCOUNT_NAME }} --sku Standard_LRS --kind StorageV2 --encryption-services blob --access-tier Cool --allow-blob-public-access false
+            az storage container create --name states --account-name ${{ inputs.STORAGE_ACCOUNT_NAME }}
+            az storage container create --name plans --account-name ${{ inputs.STORAGE_ACCOUNT_NAME }}
+
+      - uses: hashicorp/setup-terraform@v2
+
+      - name: Terraform fmt
+        id: fmt
+        run: terraform fmt -check -recursive -diff ${{ inputs.WORKING_DIR}}
+        continue-on-error: true
+        shell: bash
+        working-directory: ${{ inputs.WORKING_DIR }}${{ inputs.TERRAFORM_WORKING_DIR }}
+
+      - name: Ensure ${{ inputs.STAGE }}.tfvars exists
         shell: bash
         run: |
           ls -ltr
+          touch ${{ inputs.WORKING_DIR }}${{ inputs.TERRAFORM_WORKING_DIR }}/${{ inputs.STAGE }}.tfvars
 
-      - name: List dir
+      - name: Create backend file
+        shell: pwsh
+        run: |
+          New-Item -Path "${{ inputs.WORKING_DIR }}${{ inputs.TERRAFORM_WORKING_DIR }}" -Name "backend.tf" -Value "terraform {`r`nbackend `"azurerm`" {`r`nresource_group_name = `"${{ inputs.RESOURCE_GROUP_NAME }}`"`r`nstorage_account_name = `"${{ inputs.STORAGE_ACCOUNT_NAME }}`"`r`ncontainer_name = `"${{ inputs.CONTAINER_NAME }}`"`r`nkey = `"${{ inputs.STATE_FILE }}`"`r`n}`r`n}`r`n"
+
+      - name: Create Provider file
+        shell: pwsh
+        run: |
+          New-Item -Path "${{ inputs.WORKING_DIR }}${{ inputs.TERRAFORM_WORKING_DIR }}" -Name "azurerm_provider.tf" -Value "provider `"azurerm`"{`r`nskip_provider_registration = true`r`nfeatures {}`r`n}"
+
+      - name: Terraform Init
+        id: init
+        run: terraform init -reconfigure
+        shell: bash
+        working-directory: ${{ inputs.WORKING_DIR }}${{ inputs.TERRAFORM_WORKING_DIR }}
+
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -var-file="${{ inputs.STAGE }}.tfvars" -lock-timeout=10m -out=${{ inputs.STAGE }}.plan
+        continue-on-error: false
+        shell: bash
+        working-directory: ${{ inputs.WORKING_DIR }}${{ inputs.TERRAFORM_WORKING_DIR }}
+
+      - name: TfSec on modules
         shell: bash
         run: |
-          ls -ltr
-        working-directory: "./"
+          docker pull aquasec/tfsec:latest
+          docker run --rm -v "$(pwd)/${{ inputs.TERRAFORM_WORKING_DIR }}/.terraform/modules:/src" aquasec/tfsec ./src
 
-      - name: List dir
-        shell: bash
-        run: |
-          ls -ltr
-        working-directory: ${{ inputs.WORKING_DIR}}
+      - name: Archive terraform-live and plan
+        uses: a7ul/tar-action@v1.1.0
+        id: compress-terraform-live
+        with:
+          command: c
+          cwd: ${{ inputs.WORKING_DIR }}
+          files: |
+            ./${{ inputs.TERRAFORM_WORKING_DIR }}
+          outPath: terraform-live-${{ inputs.STAGE }}-${{ github.run_number }}.tar
 
-      - name: List dir
-        shell: bash
-        run: |
-          ls -ltr
-        working-directory: ${{ inputs.TERRAFORM_WORKING_DIR }}
+      - name: Copy ${{ inputs.STAGE }} live plan to Storage
+        uses: azure/CLI@v1
+        with:
+          azcliversion: ${{ inputs.AZURE_CLI_VERSION }}
+          inlineScript: |
+            az storage blob upload \
+              --container-name plans \
+              --file terraform-live-${{ inputs.STAGE }}-${{ github.run_number }}.tar \
+              --name terraform-live-${{ inputs.STAGE }}-${{ github.run_number }}.tar \
+              --account-name ${{ inputs.STORAGE_ACCOUNT_NAME }} \
+              --overwrite
 
-      # - name: Azure Login
-      #   uses: azure/login@v1
-      #   with:
-      #     creds: ${{ secrets.AZURE_SP }}
+      - name: Archive terraform-modules
+        uses: a7ul/tar-action@v1.1.0
+        id: compress-terraform-modules
+        with:
+          command: c
+          cwd: ${{ inputs.WORKING_DIR }}
+          files: |
+            ./${{ inputs.TERRAFORM_MODULES_DIR }}
+          outPath: terraform-modules-${{ inputs.STAGE }}-${{ github.run_number }}.tar
 
-      # - name: Create RG
-      #   uses: azure/CLI@v1
-      #   with:
-      #     azcliversion: ${{ inputs.AZURE_CLI_VERSION }}
-      #     inlineScript: |
-      #       az group create --location ${{ inputs.RESOURCE_GROUP_LOCATION }} --resource-group ${{ inputs.RESOURCE_GROUP_NAME }} --tags ${{ inputs.TAGS }}
-
-      # - name: Create storage account for Terraform
-      #   uses: azure/CLI@v1
-      #   with:
-      #     azcliversion: ${{ inputs.AZURE_CLI_VERSION }}
-      #     inlineScript: |
-      #       az storage account create --resource-group ${{ inputs.RESOURCE_GROUP_NAME }} --name ${{ inputs.STORAGE_ACCOUNT_NAME }} --sku Standard_LRS --kind StorageV2 --encryption-services blob --access-tier Cool --allow-blob-public-access false
-      #       az storage container create --name states --account-name ${{ inputs.STORAGE_ACCOUNT_NAME }}
-      #       az storage container create --name plans --account-name ${{ inputs.STORAGE_ACCOUNT_NAME }}
-
-      # - uses: hashicorp/setup-terraform@v2
-
-      # - name: Terraform fmt
-      #   id: fmt
-      #   run: terraform fmt -check -recursive -diff ${{ inputs.WORKING_DIR}}
-      #   continue-on-error: true
-      #   shell: bash
-      #   working-directory: ${{ inputs.WORKING_DIR }}${{ inputs.TERRAFORM_WORKING_DIR }}
-
-      # - name: Ensure ${{ inputs.STAGE }}.tfvars exists
-      #   shell: bash
-      #   run: |
-      #     ls -ltr
-      #     touch ${{ inputs.WORKING_DIR }}${{ inputs.TERRAFORM_WORKING_DIR }}/${{ inputs.STAGE }}.tfvars
-
-      # - name: Create backend file
-      #   shell: pwsh
-      #   run: |
-      #     New-Item -Path "${{ inputs.WORKING_DIR }}${{ inputs.TERRAFORM_WORKING_DIR }}" -Name "backend.tf" -Value "terraform {`r`nbackend `"azurerm`" {`r`nresource_group_name = `"${{ inputs.RESOURCE_GROUP_NAME }}`"`r`nstorage_account_name = `"${{ inputs.STORAGE_ACCOUNT_NAME }}`"`r`ncontainer_name = `"${{ inputs.CONTAINER_NAME }}`"`r`nkey = `"${{ inputs.STATE_FILE }}`"`r`n}`r`n}`r`n"
-
-      # - name: Create Provider file
-      #   shell: pwsh
-      #   run: |
-      #     New-Item -Path "${{ inputs.WORKING_DIR }}${{ inputs.TERRAFORM_WORKING_DIR }}" -Name "azurerm_provider.tf" -Value "provider `"azurerm`"{`r`nskip_provider_registration = true`r`nfeatures {}`r`n}"
-
-      # - name: Terraform Init
-      #   id: init
-      #   run: terraform init -reconfigure
-      #   shell: bash
-      #   working-directory: ${{ inputs.WORKING_DIR }}${{ inputs.TERRAFORM_WORKING_DIR }}
-
-      # - name: Terraform Plan
-      #   id: plan
-      #   run: terraform plan -var-file="${{ inputs.STAGE }}.tfvars" -lock-timeout=10m -out=${{ inputs.STAGE }}.plan
-      #   continue-on-error: false
-      #   shell: bash
-      #   working-directory: ${{ inputs.WORKING_DIR }}${{ inputs.TERRAFORM_WORKING_DIR }}
-
-      # - name: TfSec on modules
-      #   shell: bash
-      #   run: |
-      #     docker pull aquasec/tfsec:latest
-      #     docker run --rm -v "$(pwd)/${{ inputs.TERRAFORM_WORKING_DIR }}/.terraform/modules:/src" aquasec/tfsec ./src
-
-      # - name: Archive terraform-live and plan
-      #   uses: a7ul/tar-action@v1.1.0
-      #   id: compress-terraform-live
-      #   with:
-      #     command: c
-      #     cwd: ${{ inputs.WORKING_DIR }}
-      #     files: |
-      #       ./${{ inputs.TERRAFORM_WORKING_DIR }}
-      #     outPath: terraform-live-${{ inputs.STAGE }}-${{ github.run_number }}.tar
-
-      # - name: Copy ${{ inputs.STAGE }} live plan to Storage
-      #   uses: azure/CLI@v1
-      #   with:
-      #     azcliversion: ${{ inputs.AZURE_CLI_VERSION }}
-      #     inlineScript: |
-      #       az storage blob upload \
-      #         --container-name plans \
-      #         --file terraform-live-${{ inputs.STAGE }}-${{ github.run_number }}.tar \
-      #         --name terraform-live-${{ inputs.STAGE }}-${{ github.run_number }}.tar \
-      #         --account-name ${{ inputs.STORAGE_ACCOUNT_NAME }} \
-      #         --overwrite
-
-      # - name: Archive terraform-modules
-      #   uses: a7ul/tar-action@v1.1.0
-      #   id: compress-terraform-modules
-      #   with:
-      #     command: c
-      #     cwd: ${{ inputs.WORKING_DIR }}
-      #     files: |
-      #       ./${{ inputs.TERRAFORM_MODULES_DIR }}
-      #     outPath: terraform-modules-${{ inputs.STAGE }}-${{ github.run_number }}.tar
-
-      # - name: Copy ${{ inputs.STAGE }} modules to Storage
-      #   uses: azure/CLI@v1
-      #   with:
-      #     azcliversion: ${{ inputs.AZURE_CLI_VERSION }}
-      #     inlineScript: |
-      #       az storage blob upload \
-      #         --container-name plans \
-      #         --file terraform-modules-${{ inputs.STAGE }}-${{ github.run_number }}.tar \
-      #         --name terraform-modules-${{ inputs.STAGE }}-${{ github.run_number }}.tar \
-      #         --account-name ${{ inputs.STORAGE_ACCOUNT_NAME }} \
-      #         --overwrite
+      - name: Copy ${{ inputs.STAGE }} modules to Storage
+        uses: azure/CLI@v1
+        with:
+          azcliversion: ${{ inputs.AZURE_CLI_VERSION }}
+          inlineScript: |
+            az storage blob upload \
+              --container-name plans \
+              --file terraform-modules-${{ inputs.STAGE }}-${{ github.run_number }}.tar \
+              --name terraform-modules-${{ inputs.STAGE }}-${{ github.run_number }}.tar \
+              --account-name ${{ inputs.STORAGE_ACCOUNT_NAME }} \
+              --overwrite
