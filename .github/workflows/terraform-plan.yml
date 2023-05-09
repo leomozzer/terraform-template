@@ -23,6 +23,11 @@ on:
         type: string
         description: "Resource Group of storage account"
         required: true
+      RESOURCE_GROUP_LOCATION:
+        type: string
+        description: "Resource Group of storage account"
+        required: false
+        default: "eastus"
       STORAGE_ACCOUNT_NAME:
         type: string
         description: "Name of the storage account"
