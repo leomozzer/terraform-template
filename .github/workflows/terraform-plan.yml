@@ -62,7 +62,6 @@ on:
 
 jobs:
   plan:
-    name: "Plan Job"
     runs-on: ubuntu-latest
     steps:
       - name: Azure Login
