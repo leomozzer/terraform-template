@@ -91,7 +91,7 @@ jobs:
         shell: bash
         run: |
           ls -ltr
-        working-directory: ${{ inputs.WORKING_DIR}}${{ inputs.TERRAFORM_WORKING_DIR }}
+        working-directory: ${{ inputs.TERRAFORM_WORKING_DIR }}
 
       # - name: Azure Login
       #   uses: azure/login@v1
