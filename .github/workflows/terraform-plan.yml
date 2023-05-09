@@ -120,7 +120,7 @@ jobs:
 
       - name: Terraform Init
         id: init
-        run: terraform init -reconfigure
+        run: terraform init -reconfigure -backend-config=subscription_id=${{ secrets.ARM_SUBSCRIPTION_ID }} -backend-config=tenant_id=${{ secrets.ARM_TENANT_ID }} -backend-config=client_id=${{ secrets.ARM_CLIENT_ID }} -backend-config=client_secret=${{ secrets.ARM_CLIENT_SECRET }}
         shell: bash
         working-directory: ${{ inputs.WORKING_DIR }}${{ inputs.TERRAFORM_WORKING_DIR }}
 
