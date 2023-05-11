@@ -1,0 +1,159 @@
+name: 'Terraform Deploy'
+on:
+  workflow_dispatch:
+
+env:
+  ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+  ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+
+jobs:
+  tfsec:
+    name: "Aquasec TfSec"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v3
+
+      - name: TfSec on terraform files
+        run: |
+          docker pull aquasec/tfsec:latest
+          docker run --rm -v "$(pwd)/${{ inputs.TERRAFORM_WORKING_DIR }}:/src" aquasec/tfsec ./src
+          docker rmi "aquasec/tfsec:latest" -f | true
+
+  infracost:
+    name: Infracost
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required to post comments
+      pull-requests: write
+
+    env:
+      TF_ROOT: ${{ inputs.TERRAFORM_WORKING_DIR }}
+      # If you're using Terraform Cloud/Enterprise and have variables or private modules stored
+      # on there, specify the following to automatically retrieve the variables:
+      #   INFRACOST_TERRAFORM_CLOUD_TOKEN: ${{ secrets.TFC_TOKEN }}
+      #   INFRACOST_TERRAFORM_CLOUD_HOST: app.terraform.io # Change this if you're using Terraform Enterprise
+
+    steps:
+      # If you use private modules, add an environment variable or secret
+      # called GIT_SSH_KEY with your private key, so Infracost can access
+      # private repositories (similar to how Terraform/Terragrunt does).
+      # - name: add GIT_SSH_KEY
+      #   run: |
+      #     ssh-agent -a $SSH_AUTH_SOCK
+      #     mkdir -p ~/.ssh
+      #     echo "${{ secrets.GIT_SSH_KEY }}" | tr -d '\r' | ssh-add -
+      #     ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      - name: Setup Infracost
+        uses: infracost/actions/setup@v2
+        # See https://github.com/infracost/actions/tree/master/setup for other inputs
+        # If you can't use this action, see Docker images in https://infracost.io/cicd
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+
+      # Checkout the base branch of the pull request (e.g. main/master).
+      - name: Checkout base branch
+        uses: actions/checkout@v3
+        with:
+          ref: '${{ github.event.pull_request.base.ref }}'
+
+      # Generate Infracost JSON file as the baseline.
+      - name: Generate Infracost cost estimate baseline
+        run: |
+          infracost breakdown --path=${TF_ROOT} \
+                              --format=json \
+                              --out-file=/tmp/infracost-base.json
+
+      # Checkout the current PR branch so we can create a diff.
+      - name: Checkout PR branch
+        uses: actions/checkout@v3
+
+      # Generate an Infracost diff and save it to a JSON file.
+      - name: Generate Infracost diff
+        run: |
+          infracost diff --path=${TF_ROOT} \
+                          --format=json \
+                          --compare-to=/tmp/infracost-base.json \
+                          --out-file=/tmp/infracost.json
+
+      # Posts a comment to the PR using the 'update' behavior.
+      # This creates a single comment and updates it. The "quietest" option.
+      # The other valid behaviors are:
+      #   delete-and-new - Delete previous comments and create a new one.
+      #   hide-and-new - Minimize previous comments and create a new one.
+      #   new - Create a new cost estimate comment on every push.
+      # See https://www.infracost.io/docs/features/cli_commands/#comment-on-pull-requests for other options.
+      - name: Post Infracost comment
+        if: github.event_name == 'pull_request'
+        run: |
+            infracost comment github --path=/tmp/infracost.json \
+                                     --repo=$GITHUB_REPOSITORY \
+                                     --github-token=${{github.token}} \
+                                     --pull-request=${{github.event.pull_request.number}} \
+                                     --behavior=update
+
+  plan:
+    name: "Plan Job"
+    needs: audit
+    strategy:
+      matrix:
+        stage: [dev]
+    runs-on: ubuntu-latest
+    concurrency: ${{ matrix.stage }}
+    steps:
+    - uses: actions/checkout@v3
+
+    - uses: jungwinter/split@v2
+      id: split
+      with:
+        msg: ${{ github.repository }}
+        separator: "/"
+
+    - uses: "./.github/actions/azure-backend"
+      with:
+        AZURE_SP: ${{ secrets.AZURE_SP }}
+        RESOURCE_GROUP_NAME: "policy-as-code-tfstate-${{ matrix.stage }}-rg"
+        RESOURCE_GROUP_LOCATION: "eastus"
+        TAGS: '"UseCase=Terraform" "Stage=${{ github.job }}" "Deployed=GitHub Actions" Repository=${{ steps.split.outputs._1 }} "RunNumber=${{ github.run_number }}"'
+        STORAGE_ACCOUNT_NAME: "stacpolicyascode${{ matrix.stage }}"
+
+    - uses: "./.github/actions/terraform-plan"
+      with:
+        WORKING_DIR: "."
+        AZURE_SP: ${{ secrets.AZURE_SP }}
+        RESOURCE_GROUP_NAME: "policy-as-code-tfstate-${{ matrix.stage }}-rg"
+        STORAGE_ACCOUNT_NAME: "stacpolicyascode${{ matrix.stage }}"
+        CONTAINER_NAME: "states"
+        STATE_FILE: "policy-as-code.tfstate"
+        STAGE: "${{ matrix.stage }}"
+
+  apply:
+    name: "Apply Job"
+    needs: plan
+    strategy:
+      matrix:
+        stage: [dev]
+    runs-on: ubuntu-latest
+    environment: ${{ matrix.stage }}
+    defaults:
+     run:
+       shell: bash
+       # We keep Terraform files in the terraform directory.
+       working-directory: ./terraform-live
+    steps:
+    - uses: actions/checkout@v3
+
+    - uses: "./.github/actions/terraform-apply"
+      with:
+        WORKING_DIR: "."
+        AZURE_SP: ${{ secrets.AZURE_SP }}
+        STORAGE_ACCOUNT_NAME: "stacpolicyascode${{ matrix.stage }}"
+        STAGE: "${{ matrix.stage }}"

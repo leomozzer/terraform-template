@@ -21,7 +21,7 @@ This repository will be used as base to start a new terraform project or even us
   ├──📜outputs.tf
   └──📜variables.tf
 📂terraform-modules
-  ├──📂module1
+  └──📂module1
       ├──📜main.tf
       ├──📜outputs.tf
       └──📜variables.tf
