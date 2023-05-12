@@ -15,6 +15,7 @@ This repository will be used as base to start a new terraform project or even us
   └──📂workflows
       ├──📜audit.yml
       ├──📜terraform-apply.yml
+      └──📜terraform-deploy.yml
       └──📜terraform-plan.yml
 📂terraform-main
   ├──📜main.tf
