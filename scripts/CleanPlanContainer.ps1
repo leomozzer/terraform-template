@@ -23,7 +23,7 @@ function AuditContainer {
         [string]
         $prefix
     )
-    $storageAcc=Get-AzStorageAccount -ResourceGroupName $resourceGroupName -Name $storageAccName     
+    $storageAcc=Get-AzStorageAccount -ResourceGroupName $resourceGroupName -Name $storageAccountName
     ## Get the storage account context  
     $ctx=$storageAcc.Context  
     ## Get all the containers  
@@ -32,8 +32,8 @@ function AuditContainer {
     $blobs = Get-AzStorageBlob -Container $containerName  -Context $ctx  -Prefix $prefix | sort @{expression="LastModified";Descending=$true}
     if($blobs.Length -gt $maximumTerraformPlanFiles){
         $checkDiff = $blobs.Length - $maximumTerraformPlanFiles
-        if($checkDiff -gt 0){
-            foreach($blob in $blobs[$maximumTerraformPlanFiles..$blob.Length - 1]){
+        if($checkDiff -gt 1){
+            foreach($blob in $blobs[$maximumTerraformPlanFiles..($blobs.Length - 1)]){
                 Write-Output "Removing $($blob.Name)"
                 Remove-AzStorageBlob -Container $containerName -Blob $blob.Name -Context $ctx
             }
