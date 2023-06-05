@@ -17,23 +17,36 @@ param (
     $getTerraformModules = $false
 )
 
-try {
-    Write-Host "Retrieving all blobs from storage container.."
+function AuditContainer {
+    param (
+        [Parameter()]
+        [string]
+        $prefix
+    )
     $storageAcc=Get-AzStorageAccount -ResourceGroupName $resourceGroupName -Name $storageAccName     
     ## Get the storage account context  
     $ctx=$storageAcc.Context  
     ## Get all the containers  
     $containers=Get-AzStorageContainer  -Context $ctx         
     ## Get all the blobs  
-    $livePlans = Get-AzStorageBlob -Container $containerName  -Context $ctx  -Prefix "terraform-live" | sort @{expression="LastModified";Descending=$true}
-    if($livePlans.Length -gt $maximumTerraformPlanFiles){
-        Remove-AzStorageBlob -Container $containerName -Blob $livePlans[$livePlans.Length - 1].Name -Context $ctx 
-    }
-    if($getTerraformModules){
-        $modulePlans = Get-AzStorageBlob -Container $containerName  -Context $ctx  -Prefix "terraform-modules" | sort @{expression="LastModified";Descending=$true}
-        if($modulePlans.Length -gt $maximumTerraformPlanFiles){
-            Remove-AzStorageBlob -Container $containerName -Blob $modulePlans[$modulePlans.Length - 1].Name -Context $ctx 
+    $blobs = Get-AzStorageBlob -Container $containerName  -Context $ctx  -Prefix $prefix | sort @{expression="LastModified";Descending=$true}
+    if($blobs.Length -gt $maximumTerraformPlanFiles){
+        $checkDiff = $blobs.Length - $maximumTerraformPlanFiles
+        if($checkDiff -gt 0){
+            foreach($blob in $blobs[$maximumTerraformPlanFiles..$blob.Length - 1]){
+                Write-Output "Removing $($blob.Name)"
+                Remove-AzStorageBlob -Container $containerName -Blob $blob.Name -Context $ctx
+            }
         }
+    }
+    return "Cleaned $prefix"
+}
+
+try {
+    Write-Host "Retrieving all blobs from storage container.."
+    AuditContainer -prefix "terraform-live"
+    if($getTerraformModules){
+        AuditContainer -prefix "terraform-modules"
     }
 }
 catch {
