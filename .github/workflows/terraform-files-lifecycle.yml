@@ -1,0 +1,54 @@
+name: 'Clean Terraform Plan files'
+on:
+  workflow_call:
+    inputs:
+      RESOURCE_GROUP_NAME:
+        type: string
+        description: "Resource Group of storage account"
+        required: true
+      STORAGE_ACCOUNT_NAME:
+        type: string
+        description: "Name of the storage account"
+        required: true
+      CONTAINER_NAME:
+        type: string
+        description: "Container name"
+        required: true
+      MAXIMUM_TERRAFORM_PLAN_FILES:
+        required: false
+        type: number
+        default: 3
+      GET_TERRAFORM_MODULES:
+        required: true
+        type: string
+        default: terraform-modules
+      AZURE_PS_VERSION:
+        type: string
+        description: "Azure PowerShell version"
+        required: false
+        default: 'latest'
+    secrets:
+      AZURE_SP:
+        description: "Credentials of the Azure SP"
+        required: true
+
+jobs:
+  plan:
+    name: "Plan"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_SP }}
+          enable-AzPSSession: true
+
+      - name: Run Azure PowerShell Script File
+        uses: azure/powershell@v1
+        with:
+          inlineScript: 
+            ./scripts/CleanPlanContainer.ps1 -resourceGroupName ${{ inputs.RESOURCE_GROUP_NAME }} -storageAccountName ${{ inputs.STORAGE_ACCOUNT_NAME }} -containerName ${{ inputs.CONTAINER_NAME }} -maximumTerraformPlanFiles ${{ inputs.MAXIMUM_TERRAFORM_PLAN_FILES }} -getTerraformModules ${{ inputs.GET_TERRAFORM_MODULES }}
+          azPSVersion: ${{ inputs.AZURE_PS_VERSION }}
+      
