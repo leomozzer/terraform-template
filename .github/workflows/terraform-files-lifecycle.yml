@@ -48,7 +48,6 @@ jobs:
       - name: Run Azure PowerShell Script File
         uses: azure/powershell@v1
         with:
-          inlineScript: 
-            ../scripts/CleanPlanContainer.ps1 -resourceGroupName ${{ inputs.RESOURCE_GROUP_NAME }} -storageAccountName ${{ inputs.STORAGE_ACCOUNT_NAME }} -containerName ${{ inputs.CONTAINER_NAME }} -maximumTerraformPlanFiles ${{ inputs.MAXIMUM_TERRAFORM_PLAN_FILES }} -getTerraformModules ${{ inputs.GET_TERRAFORM_MODULES }}
+          inlineScript: ./scripts/CleanPlanContainer.ps1 -resourceGroupName ${{ inputs.RESOURCE_GROUP_NAME }} -storageAccountName ${{ inputs.STORAGE_ACCOUNT_NAME }} -containerName ${{ inputs.CONTAINER_NAME }} -maximumTerraformPlanFiles ${{ inputs.MAXIMUM_TERRAFORM_PLAN_FILES }} -getTerraformModules ${{ inputs.GET_TERRAFORM_MODULES }}
           azPSVersion: ${{ inputs.AZURE_PS_VERSION }}
       
