@@ -23,14 +23,9 @@ function AuditContainer {
         [string]
         $prefix
     )
-    Write-Output $prefix
-    Write-Output $storageAccountName
-    Write-Output $resourceGroupName
     $storageAcc=Get-AzStorageAccount -ResourceGroupName $resourceGroupName -Name $storageAccountName
-    Write-Output $storageAcc
     ## Get the storage account context  
     $ctx=$storageAcc.Context
-    Write-Output $ctx
     ## Get all the containers  
     $containers=Get-AzStorageContainer -Context $ctx
     ## Get all the blobs  
